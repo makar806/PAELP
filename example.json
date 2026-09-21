@@ -1,0 +1,7 @@
+{
+  "write": {
+    "binop": "+",
+    "left": { "const": 2 },
+    "right": { "const": 3 }
+  }
+}

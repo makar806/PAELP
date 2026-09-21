@@ -22,7 +22,7 @@ public class Main {
         this.input = new Scanner(input).useDelimiter("[,\\s]+");
     }
 
-    static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException {
         if (args.length < 1 || args.length > 2) {
             System.err.println("Usage: java Main <program.json> [input.txt]");
             return;

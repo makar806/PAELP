@@ -1,6 +1,11 @@
-# Файлы, которые Java создаёт при компиляции
+# Java and Maven build output
 *.class
+target/
+out/
 
-# Локальные настройки IntelliJ IDEA
-*.iml
+# IntelliJ IDEA project-local files
 .idea/
+*.iml
+
+# Operating-system files
+.DS_Store
