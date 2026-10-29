@@ -8,7 +8,7 @@ final class Lexer {
     );
 
     private static final List<String> OPERATORS = List.of(
-            "!!", "&&", "==", "!=", "<=", ">=", "<", ">", "+", "-", "*", "/", "%"
+            "!!", "&&", "==", "!=", "<=", ">=", "<", ">", ":", "+", "-", "*", "/", "%"
     );
 
     private final String source;
@@ -45,13 +45,14 @@ final class Lexer {
         }
 
         char current = peek(0);
-        if (isLowercaseLetter(current)) {
+        if (isLowercaseLetter(current) || current >= 'A' && current <= 'Z') {
             int start = position;
             while (isIdentifierCharacter(peek(0))) {
                 advance();
             }
             String text = source.substring(start, position);
-            return Token.simple(KEYWORDS.contains(text) ? TokenKind.KEYWORD : TokenKind.IDENTIFIER,
+            return Token.simple(KEYWORDS.contains(text) ? TokenKind.KEYWORD
+                            : isLowercaseLetter(current) ? TokenKind.IDENTIFIER : TokenKind.CONSTRUCTOR,
                     text, tokenLine, tokenColumn);
         }
 
@@ -62,10 +63,51 @@ final class Lexer {
             }
             String text = source.substring(start, position);
             try {
-                return Token.integer(text, Long.parseLong(text), tokenLine, tokenColumn);
+                long number = Long.parseLong(text);
+                if (number > 2147483648L) {
+                    throw new NumberFormatException();
+                }
+                return Token.integer(text, number, tokenLine, tokenColumn);
             } catch (NumberFormatException exception) {
                 throw error(tokenLine, tokenColumn, "integer constant is out of range: " + text);
             }
+        }
+
+        if (current == '"') {
+            advance();
+            int start = position;
+            while (!atEnd() && peek(0) != '"') {
+                advance();
+            }
+            if (atEnd()) {
+                return Token.simple(TokenKind.UNKNOWN, "\"", tokenLine, tokenColumn);
+            }
+            String value = source.substring(start, position);
+            advance();
+            return Token.simple(TokenKind.STRING, value, tokenLine, tokenColumn);
+        }
+
+        if (current == '\'') {
+            advance();
+            if (atEnd()) {
+                return Token.simple(TokenKind.UNKNOWN, "'", tokenLine, tokenColumn);
+            }
+            char value = peek(0);
+            advance();
+            if (value == '\\' && (peek(0) == 'n' || peek(0) == 't')) {
+                char escaped = peek(0);
+                advance();
+                value = switch (escaped) {
+                    case 'n' -> '\n';
+                    case 't' -> '\t';
+                    default -> '\0';
+                };
+            }
+            if (value > 127 || peek(0) != '\'') {
+                return Token.simple(TokenKind.UNKNOWN, "'", tokenLine, tokenColumn);
+            }
+            advance();
+            return Token.integer(Character.toString(value), value, tokenLine, tokenColumn);
         }
 
         for (String operator : OPERATORS) {
@@ -81,6 +123,10 @@ final class Lexer {
             case ')' -> TokenKind.RIGHT_PAREN;
             case '{' -> TokenKind.LEFT_BRACE;
             case '}' -> TokenKind.RIGHT_BRACE;
+            case '[' -> TokenKind.LEFT_BRACKET;
+            case ']' -> TokenKind.RIGHT_BRACKET;
+            case ',' -> TokenKind.COMMA;
+            case '.' -> TokenKind.DOT;
             case ';' -> TokenKind.SEMICOLON;
             default -> null;
         };
@@ -89,7 +135,8 @@ final class Lexer {
             return Token.simple(kind, Character.toString(current), tokenLine, tokenColumn);
         }
 
-        throw error(tokenLine, tokenColumn, "unexpected character: " + quoted(current));
+        advance();
+        return Token.simple(TokenKind.UNKNOWN, Character.toString(current), tokenLine, tokenColumn);
     }
 
     private void skipWhitespaceAndComments() {
@@ -108,13 +155,22 @@ final class Lexer {
                 int commentLine = line;
                 int commentColumn = column;
                 advance(2);
-                while (!hasPrefix("*)")) {
+                int depth = 1;
+                while (depth > 0) {
                     if (atEnd()) {
-                        throw error(commentLine, commentColumn, "unterminated comment");
+                        throw new LanguageException("unterminated comment ('*)' not detected) at ("
+                                + commentLine + ":" + commentColumn + ")");
                     }
-                    advance();
+                    if (hasPrefix("(*")) {
+                        depth++;
+                        advance(2);
+                    } else if (hasPrefix("*)")) {
+                        depth--;
+                        advance(2);
+                    } else {
+                        advance();
+                    }
                 }
-                advance(2);
                 continue;
             }
             return;
@@ -163,10 +219,6 @@ final class Lexer {
 
     private static boolean isDigit(char value) {
         return value >= '0' && value <= '9';
-    }
-
-    private static String quoted(char value) {
-        return value == '\0' ? "end of file" : "\"" + value + "\"";
     }
 
     private static LanguageException error(int line, int column, String message) {

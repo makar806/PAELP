@@ -4,7 +4,6 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LanguageEngineTest {
     @Test
@@ -224,7 +223,7 @@ class LanguageEngineTest {
                 LanguageException.class,
                 () -> LanguageEngine.compileAndRun("write(x);", List.of())
         );
-        assertTrue(undefined.getMessage().contains("undefined variable"));
+        assertEquals("ERROR: variable \"x\" is undefined", undefined.getMessage());
 
         assertThrows(
                 LanguageException.class,

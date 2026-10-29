@@ -36,6 +36,31 @@ public final class SourceCompiler {
             emitString("BINOP", binary.operator());
             return;
         }
+        if (expression instanceof StringExpression string) {
+            emitString("STRING", string.value());
+            return;
+        }
+        if (expression instanceof ArrayExpression array) {
+            array.elements().forEach(this::compileExpression);
+            emitNumber("ARRAY", array.elements().size());
+            return;
+        }
+        if (expression instanceof SexpExpression sexp) {
+            sexp.arguments().forEach(this::compileExpression);
+            code.add(Instruction.sexp(sexp.name(), sexp.arguments().size()));
+            return;
+        }
+        if (expression instanceof ElementExpression element) {
+            compileExpression(element.target());
+            compileExpression(element.index());
+            emitSimple("ELEM");
+            return;
+        }
+        if (expression instanceof LengthExpression length) {
+            compileExpression(length.target());
+            emitSimple("LENGTH");
+            return;
+        }
         throw new IllegalStateException("unknown expression: " + expression);
     }
 
@@ -56,6 +81,13 @@ public final class SourceCompiler {
             return false;
         }
         if (statement instanceof SkipStatement) {
+            return false;
+        }
+        if (statement instanceof SetStatement set) {
+            compileExpression(set.target());
+            compileExpression(set.index());
+            compileExpression(set.value());
+            emitSimple("SET");
             return false;
         }
         if (statement instanceof SequenceStatement sequence) {

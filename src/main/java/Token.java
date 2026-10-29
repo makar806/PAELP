@@ -1,6 +1,9 @@
 enum TokenKind {
     EOF,
+    UNKNOWN,
     IDENTIFIER,
+    CONSTRUCTOR,
+    STRING,
     INTEGER,
     KEYWORD,
     OPERATOR,
@@ -9,6 +12,10 @@ enum TokenKind {
     RIGHT_PAREN,
     LEFT_BRACE,
     RIGHT_BRACE,
+    LEFT_BRACKET,
+    RIGHT_BRACKET,
+    COMMA,
+    DOT,
     SEMICOLON
 }
 

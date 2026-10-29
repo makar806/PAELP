@@ -1,5 +1,6 @@
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
@@ -9,87 +10,101 @@ public final class StackMachine {
     private StackMachine() {
     }
 
-    public static List<Long> run(List<Instruction> program, List<Long> suppliedInput) {
-        Map<String, Integer> labels = collectLabels(program);
-        Map<String, Long> variables = new HashMap<>();
-        Deque<Long> stack = new ArrayDeque<>();
-        Deque<Long> input = new ArrayDeque<>(suppliedInput);
-        List<Long> output = new ArrayList<>();
+    public static List<Object> run(List<Instruction> program, List<?> suppliedInput) {
+        return runValues(program, suppliedInput);
+    }
 
+    public static List<Object> runValues(List<Instruction> program, List<?> suppliedInput) {
+        Map<String, Object> variables = new HashMap<>();
+        Deque<Object> stack = new ArrayDeque<>();
+        Deque<Object> input = new ArrayDeque<>(suppliedInput);
+        List<Object> output = new ArrayList<>();
+        Map<String, Integer> labels = new HashMap<>();
         int instructionPointer = 0;
         while (instructionPointer < program.size()) {
             Instruction instruction = program.get(instructionPointer++);
-            String opcode = instruction.opcode();
-            switch (opcode) {
+            switch (instruction.opcode()) {
                 case "READ" -> {
                     if (input.isEmpty()) {
-                        throw new LanguageException("READ: not enough input values");
+                        throw new LanguageException("ERROR: input exhausted");
                     }
                     stack.push(input.removeFirst());
                 }
                 case "WRITE" -> output.add(pop(stack));
-                case "LD" -> {
-                    String variable = stringArgument(instruction);
-                    Long value = variables.get(variable);
-                    if (value == null) {
-                        throw new LanguageException("undefined variable: " + variable);
-                    }
-                    stack.push(value);
-                }
+                case "LD" -> stack.push(Values.variable(variables, stringArgument(instruction)));
                 case "ST" -> variables.put(stringArgument(instruction), pop(stack));
-                case "CONST" -> stack.push(numberArgument(instruction));
+                case "CONST" -> stack.push((long) (int) numberArgument(instruction));
                 case "BINOP" -> {
-                    long right = pop(stack);
-                    long left = pop(stack);
-                    stack.push(apply(stringArgument(instruction), left, right));
+                    Object right = pop(stack);
+                    stack.push(Values.apply(stringArgument(instruction), pop(stack), right));
                 }
                 case "LABEL" -> {
-                    // LABEL only marks a destination.
                 }
-                case "JMP" -> instructionPointer = resolve(labels, stringArgument(instruction));
-                case "JZ" -> {
-                    long condition = pop(stack);
-                    if (condition == 0) {
-                        instructionPointer = resolve(labels, stringArgument(instruction));
+                case "JMP" -> instructionPointer = resolve(program, labels, stringArgument(instruction));
+                case "JZ", "JNZ" -> {
+                    long condition = Values.integer(pop(stack));
+                    if ((condition == 0) == instruction.opcode().equals("JZ")) {
+                        instructionPointer = resolve(program, labels, stringArgument(instruction));
                     }
                 }
-                case "JNZ" -> {
-                    long condition = pop(stack);
-                    if (condition != 0) {
-                        instructionPointer = resolve(labels, stringArgument(instruction));
+                case "STRING" -> stack.push(new Values.Text(stringArgument(instruction)));
+                case "ARRAY" -> stack.push(new Values.Array(popArguments(stack, numberArgument(instruction))));
+                case "SEXP" -> {
+                    if (!(instruction.argument() instanceof Instruction.SexpArgument sexp)) {
+                        throw new LanguageException("SEXP: name and arity expected");
                     }
+                    stack.push(new Values.Sexp(sexp.name(), popArguments(stack, sexp.arity())));
                 }
-                default -> throw new LanguageException("unknown instruction: " + opcode);
+                case "LENGTH" -> stack.push(Values.length(pop(stack)));
+                case "ELEM" -> {
+                    Object index = pop(stack);
+                    stack.push(Values.element(pop(stack), index));
+                }
+                case "SET" -> {
+                    Object value = pop(stack);
+                    Object index = pop(stack);
+                    Values.set(pop(stack), index, value);
+                }
+                default -> throw new LanguageException("unknown instruction: " + instruction.opcode());
             }
         }
         return List.copyOf(output);
     }
 
-    private static Map<String, Integer> collectLabels(List<Instruction> program) {
-        Map<String, Integer> labels = new HashMap<>();
-        for (int index = 0; index < program.size(); index++) {
-            Instruction instruction = program.get(index);
-            if (instruction.opcode().equals("LABEL")) {
-                String label = stringArgument(instruction);
-                if (labels.putIfAbsent(label, index) != null) {
-                    throw new LanguageException("duplicate label: " + label);
+    private static int resolve(List<Instruction> program, Map<String, Integer> labels, String label) {
+        if (labels.isEmpty()) {
+            for (int index = 0; index < program.size(); index++) {
+                Instruction instruction = program.get(index);
+                if (instruction.opcode().equals("LABEL")) {
+                    String name = stringArgument(instruction);
+                    if (labels.putIfAbsent(name, index + 1) != null) {
+                        throw new LanguageException("ERROR: duplicate label \"" + name + "\"");
+                    }
                 }
             }
         }
-        return labels;
-    }
-
-    private static int resolve(Map<String, Integer> labels, String label) {
         Integer target = labels.get(label);
         if (target == null) {
-            throw new LanguageException("undefined label: " + label);
+            throw new LanguageException("ERROR: indefined label \"" + label + "\"");
         }
         return target;
     }
 
-    private static long pop(Deque<Long> stack) {
+    private static List<Object> popArguments(Deque<Object> stack, long count) {
+        if (count < 0 || count > stack.size()) {
+            throw new LanguageException("ERROR: stack exhausted");
+        }
+        List<Object> arguments = new ArrayList<>();
+        for (long i = 0; i < count; i++) {
+            arguments.add(pop(stack));
+        }
+        Collections.reverse(arguments);
+        return arguments;
+    }
+
+    private static Object pop(Deque<Object> stack) {
         if (stack.isEmpty()) {
-            throw new LanguageException("stack is empty");
+            throw new LanguageException("ERROR: stack exhausted");
         }
         return stack.pop();
     }
@@ -106,38 +121,5 @@ public final class StackMachine {
             throw new LanguageException(instruction.opcode() + ": integer argument expected");
         }
         return value;
-    }
-
-    private static long apply(String operator, long left, long right) {
-        return switch (operator) {
-            case "!!" -> bool(left != 0 || right != 0);
-            case "&&" -> bool(left != 0 && right != 0);
-            case "==" -> bool(left == right);
-            case "!=" -> bool(left != right);
-            case "<=" -> bool(left <= right);
-            case "<" -> bool(left < right);
-            case ">=" -> bool(left >= right);
-            case ">" -> bool(left > right);
-            case "+" -> left + right;
-            case "-" -> left - right;
-            case "*" -> left * right;
-            case "/" -> {
-                if (right == 0) {
-                    throw new LanguageException("division by zero");
-                }
-                yield left / right;
-            }
-            case "%" -> {
-                if (right == 0) {
-                    throw new LanguageException("division by zero");
-                }
-                yield left % right;
-            }
-            default -> throw new LanguageException("undefined operator: " + operator);
-        };
-    }
-
-    private static long bool(boolean value) {
-        return value ? 1 : 0;
     }
 }
